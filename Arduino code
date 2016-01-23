@@ -1,0 +1,216 @@
+/* 
+ Arduino Code by Michael Genecin
+ For use in automated chair training for rhesus macaques. Training protocol
+ designed by Carlos R. Ponce, Michael Genecin, and Margaret Livingstone. 
+ Livingstone Lab, Harvard Medical School.
+ January 21, 2016.
+ 
+ Acknowledgement to Shawn Hymel and Giedow for providing sample code
+ online at instructables.com for each sensor type. 
+
+ Description:
+
+ This code is designed for the Arduino Uno, and communicates with an
+ AT42QT1010 Capacitive Touch Sensor from Sparkfun Electronics, and 
+ two HC-SR04 Sonar Range Finders from SunFounder Electronics in order
+ train a lab monkey to enter a restraint chair. 
+ 
+ The monkey is rewarded for entering the chair and touching an electrode, 
+ and receives higher rewards for entering further into the chair. 
+ 
+ This code also records the distance level (how far from the front of
+ the chair, broken up into 3 categories) that the monkey achieves, and 
+ communcates with a MatLab script that places that information into
+ vectors to be able to monitor the animal's progress. 
+ 
+ Hardware connections:
+
+ Uno Pin    AT42QT1010 Board  Function
+
+ +5V        VDD               Power supply
+ GND        GND               Ground
+ 2          OUT               Capacitive touch state output
+ 
+ *attachments to sonar sensors described under constants*
+
+*/
+
+// Constants
+const int TOUCH_BUTTON_PIN = 7;     // Input pin for touch state
+const int vcc1 = 2;                 // attach pin 2 to vcc of first sensor
+const int trig1 = 3;                // attach pin 3 to Trig of first sensor
+const int echo1 = 4;                // attach pin 4 to Echo of first sensor
+const int gnd1 = 5;                 // attach pin 5 to GND of first sensor
+const int vcc2 = 8;                 // attach pin 8 to vcc of second sensor
+const int trig2 = 9;                // attach pin 9 to Trig of second sensor
+const int echo2 = 10;               // attach pin 10 to Echo of second sensor
+const int gnd2 = 11;                // attach pin 11 to GND of second sensor
+const int led = 13;                 // Pin number for LED used to control reward as well.
+const int C = 3;                    // Distance level 1
+const int B = 2;                    // Distance level 2
+const int A = 1;                    // Distance level 3
+
+
+// Global Variables
+int buttonState = 0;       // Variable for reading capacitive sensor state
+int outState = 0;          // Variable used to ensure animal must let go of sensor before touching again to receive reward
+int Rewards = 0;           // Monitors number of rewards given
+
+
+void setup() 
+{
+  // Configure button pin as input 
+  pinMode(TOUCH_BUTTON_PIN, INPUT);
+  // Configure vcc and gnd on both sonar sensors and LED pin as outputs
+  pinMode(vcc1,OUTPUT);
+  pinMode(gnd1,OUTPUT);
+  pinMode(vcc2,OUTPUT);
+  pinMode(gnd2,OUTPUT);
+  pinMode(led, OUTPUT);
+  // initialize serial communication:
+  Serial.begin(9600);
+}
+
+void loop() {
+
+ // Read the state of the capacitive touch board
+ buttonState = digitalRead(TOUCH_BUTTON_PIN);
+ 
+ // If electrode is not being touched, no reward, but make sure outstate is
+ // at zero to acknowledge that electrode is not being touched.
+ if(buttonState == LOW)
+ { 
+   outState = 0;
+   digitalWrite(led, LOW);
+ }
+ 
+ // While the button is being touched: 
+ while(buttonState == HIGH)
+ {
+   switch (outState)
+   {
+     // if outstate is zero, as in, the monkey has only just touched the
+     // sensor, check distance and reward appropriately.
+     case 0:
+      
+      // access sonar sensors
+      digitalWrite(vcc1, HIGH);
+      // establish variables for duration of the ping, and the distance 
+      // result in centimeters, as well as a place_holder for use later:
+      long duration1, duration2, cm1, cm2, place_holder;
+
+      // The ping is triggered by a HIGH pulse of 2 or more microseconds.
+      // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+      pinMode(trig1, OUTPUT);
+      digitalWrite(trig1, LOW);
+      delayMicroseconds(2);
+      digitalWrite(trig1, HIGH);
+      delayMicroseconds(5);
+      digitalWrite(trig1, LOW);
+      
+      // The same pin is used to read the signal from the ping: a HIGH
+      // pulse whose duration is the time (in microseconds) from the sending
+      // of the ping to the reception of its echo off of an object.
+      pinMode(echo1,INPUT);
+      duration1 = pulseIn(echo1, HIGH);
+      
+      // convert the time into a distance (microsecondsToCentimeters is defined at end)
+      cm1 = microsecondsToCentimeters(duration1);
+      
+      // Go through same process for second sensor
+      digitalWrite(vcc2, HIGH);
+
+      pinMode(trig2, OUTPUT);
+      digitalWrite(trig2, LOW);
+      delayMicroseconds(2);
+      digitalWrite(trig2, HIGH);
+      delayMicroseconds(5);
+      digitalWrite(trig2, LOW);
+      
+      pinMode(echo2,INPUT);
+      duration2 = pulseIn(echo2, HIGH);
+      
+      cm2 = microsecondsToCentimeters(duration2);
+
+      // set cm1 as closest and cm2 as farthest, makes this all much easier.
+      if(cm1 > cm2)
+      {
+        place_holder = cm1;
+        cm1 = cm2;
+        cm2 = place_holder;
+      }
+      // if difference between two sonar sensors is negligible, set them both equal to the closer one
+      if(cm2 - cm1 <= 3)
+      {
+        cm2 = cm1;
+      }  
+      
+      // Turn LED and reward on for an amount of time determined by the farthest distance,
+      // because closest distance could be due to a hand blocking the sensor.
+      digitalWrite(led, HIGH);
+      
+      // if farthest distance is greater than length of the chair (in this case 24 centimeters)
+      // reward for lowest amount of time 
+      if (cm2 > 24)
+      {
+        Serial.println(C);    // Send the digit "3" to the serial port
+        delay(50);            // Replace '50' with your own starting point for lowest reward
+      }
+     
+      // reward parameters for middle distance, defined in this as a range of 9-25 centimeters, inclusive
+      else if (cm2 > 8 && cm2 < 25)
+      {
+        Serial.println(B);    // Send the digit "2" to the serial port
+        delay(150);           // Replace '150' with your own starting point for middle reward
+      }
+      
+      // reward parameters for closest distance, defined in this as 8 or fewer centimeters.
+      else if (cm2 < 9)
+      {
+        Serial.println(A);    // Send the digit "1" to the serial port
+        delay(500);           // Replace '500' with your own starting point for highest reward
+      }
+      
+      Rewards++;              // reward counter
+      
+      // Turn off reward. 
+      digitalWrite(led, LOW);
+      
+      // Change outstate to 1 so that subject does not receive another reward until he 
+      // releases the electrode and outstate returns to zero. 
+      outState = 1;
+      
+      // re-read buttonstate
+      buttonState = digitalRead(TOUCH_BUTTON_PIN);
+      break;
+     
+     // if outstate is at one, as in, the monkey already received a reward for this
+     // touch but has not yet let go of the electrode, make sure no reward is given,
+     // give a slight delay, and re-check button state. 
+     case 1:
+       digitalWrite(led, LOW);
+       
+       // A slight delay is necessary for this to work, and for some reason 57 worked 
+       // with fewest errors and highest speed. Feel free to try your own numbers.
+       delay(57);            
+       
+       buttonState = digitalRead(TOUCH_BUTTON_PIN);
+       break;
+    }
+    
+    // recheck button state
+    buttonState = digitalRead(TOUCH_BUTTON_PIN);
+   }
+   
+   // recheck button state
+   buttonState = digitalRead(TOUCH_BUTTON_PIN);
+}
+
+// defne microsecondsToCentimeters
+long microsecondsToCentimeters(long microseconds)
+{
+// The speed of sound is 340 m/s or 29.1 microseconds per centimeter.
+// The ping travels out and back, so to find the distance of the
+// object we take half of the distance travelled.
+return microseconds / 29.1 / 2;
+}
