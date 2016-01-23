@@ -1,0 +1,104 @@
+% MATLAB SCRIPT FOR DATA ACQUISITION FROM ARDUINO. INFO ON PROJECT CAN
+% BE FOUND AT HEADER OF THE ARDUINO SCRIPT FILE. MATLAB CODE BY CARLOS 
+% R. PONCE, MICHAEL GENECIN, AND GENESIS PEREZ. 
+
+% Email information:
+% We used this section to send us an update on the animals progress by
+% email from the training room every 100 touches. This is optional, and you
+% may set it to send every any number of touches.
+mail = 'Your GMail address here'; % sending FROM address (if using Gmail, 
+% make sure to change your security settings within Gmail settings).
+password = 'Your corresponding Gmail password here'; % sending FROM
+setpref('Internet','SMTP_Server','smtp.gmail.com');
+
+setpref('Internet','E_mail',mail);
+setpref('Internet','SMTP_Username',mail);
+setpref('Internet','SMTP_Password',password);
+
+props = java.lang.System.getProperties;
+props.setProperty('mail.smtp.auth','true');
+props.setProperty('mail.smtp.socketFactory.class', ...
+    'javax.net.ssl.SSLSocketFactory');
+props.setProperty('mail.smtp.socketFactory.port','465');
+% end email information section
+
+% establish serial communication
+arduino=serial('COM5','BaudRate',9600); %change 'COM5' to whichever serial port you are using
+fopen(arduino);
+
+% set clock
+tic;
+
+% establish total elapsed time variable
+telapsed = toc;
+
+% iTrial is for use in sending email with updates, to keep track of how
+% many emails have been sent and to use in name of the file to be sent.
+iTrial = 0;
+
+% establish Time and Touches vectors for data to be entered into
+Time = [0];
+Touches = [0];
+
+% While loop is used to continuously check for information through the serial port 
+% for a given amount of time. Set this time for as long as you want the training session
+% session to be in seconds. If training will go on for indefinite amount of
+% time, set this number as an outer limit and return to stop the script
+% whenever you wish. 
+while (telapsed < 21600) 
+   
+    % check elapsed time
+    telapsed = toc;
+    
+    % scan the serial port for a digit
+    d = fscanf(arduino,'%d');
+   
+    % if digit is 1, 2, or 3, add that digit to the Touches vector, and add
+    % the current time to the Time vector. 
+    if (d == 1)
+        Time(end+1) = telapsed;
+        Touches(end+1) = d;
+    elseif (d == 2)
+        Time(end+1) = telapsed;
+        Touches(end+1) = d;
+    elseif (d == 3)
+        Time(end+1) = telapsed;
+        Touches(end+1) = d;
+    end
+    
+    % check if a multiple of 100 trials has passed 
+    [M,N] = size(Touches);
+    if(rem(N,100) == 0)
+       
+       % update iTrial
+       iTrial = iTrial + 1;
+       
+       % save current time stamp
+       dateName = datestr(now); dateName = dateName(1:11);
+       
+       % save workspace as a file name containing date and iTrial number
+       save(sprintf('Chair_Data-%s-%d.mat',dateName,iTrial))
+       
+       % send email
+       sendmail('YOUR RECEIVING GMAIL ADDRESS HERE',...
+               'YOUR SUBJECT LINE HERE',...
+               'MESSAGE CONTENT HERE',...
+               ['YOUR FILE NAME AND LOCATION HERE.' ...
+                'FOR EXAMPLE C:\Users\Person\Documents\MATLAB\' ...
+                sprintf('Chair_Data-%s-%d.mat',dateName,iTrial)])
+        
+    end
+end
+
+% After given time, close serial port. If you cancel the script early
+% before the while loop runs out, be sure to close the port manually, or
+% the next time you try to run the script it will be unable to access the
+% serial port. 
+fclose(arduino);
+
+% Optional: Display scatter (or any other type) of plot here. You can also
+% do this manually after the script stops running. 
+disp('making plot..')
+scatter(Time,Touches);
+
+% Be sure to save the workspace.
